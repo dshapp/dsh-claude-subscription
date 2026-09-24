@@ -1,0 +1,4 @@
+# Harness packages peer-depend on cordis ranges that are not published here, and
+# this bundle imports no harness package at runtime, so peers are not chased.
+autoInstallPeers: false
+strictPeerDependencies: false

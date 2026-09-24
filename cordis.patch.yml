@@ -1,0 +1,12 @@
+# dsh Claude subscription: keeps the harness's `ANTHROPIC_API_KEY` reference
+# pointed at the live Claude Code (Pro/Max/Team) OAuth access token, so the
+# built-in Anthropic provider runs on that subscription.
+#
+# This layer only inserts the plugin. It deliberately does NOT patch
+# `llm-pi-ai`, because a non-insert profile patch replaces an entry's whole
+# `config` object: restating `providers` here would drop every other route the
+# user configured. The plugin instead reconciles its own route at runtime
+# through the settings seam (`ensureProvider`), which merges.
+- insert:
+    - id: claude-subscription
+      name: 'dsh-claude-subscription'

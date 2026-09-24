@@ -1,0 +1,12 @@
+node_modules/
+.pnpm-store/
+
+# Scratch state from local runs: never publish a credential copy or a backup of one.
+.test-home/
+*.credentials.yaml
+*credential*.json
+!package.json
+
+# Harness profile artifacts
+cordis.patch.yml.bak-*
+package.json.bak-*
