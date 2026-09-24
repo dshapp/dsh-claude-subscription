@@ -191,7 +191,7 @@ const stubAlreadyRight = {
 	get: (name) =>
 		name === 'settings'
 			? {
-					describe: () => [{ ns: 'llm-pi-ai', revision: 3, value: { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', displayName: 'Claude (subscription)', models: [{ id: 'claude-opus-5-5' }] } } } }],
+					describe: () => [{ ns: 'llm-pi-ai', revision: 3, value: { providers: { anthropic: { apiKeyEnv: 'ANTHROPIC_API_KEY', displayName: 'anthropic', models: [{ id: 'claude-opus-5-5' }] } } } }],
 					update: async (...args) => settingsWrites4.push(args)
 				}
 			: undefined
