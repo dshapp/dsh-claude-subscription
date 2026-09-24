@@ -1,6 +1,6 @@
 {
   "name": "@dshapp/dsh-claude-subscription",
-  "version": "0.1.1",
+  "version": "0.1.2",
   "description": "DeepSeek Harness (DSH) bundle: shares a Claude Code (Pro/Max/Team) subscription credential with the harness, so the built-in Anthropic provider runs on the subscription instead of a separate API key.",
   "type": "module",
   "license": "MIT",
