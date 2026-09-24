@@ -24,9 +24,6 @@ jobs:
     runs-on: ubuntu-latest
     # Must match the environment named in the package's trusted publisher.
     environment: npm
-    # A version-bump commit is pushed back below, and re-running the release on
-    # it would try to publish a version that already exists.
-    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
 
     steps:
       - name: Checkout
@@ -120,14 +117,23 @@ jobs:
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
           git add package.json
           if ! git diff --cached --quiet; then
-            git commit -m "chore(release): $TAG [skip ci]"
+            git commit -m "chore(release): $TAG"
           fi
           git tag -a "$TAG" -m "$TAG"
           git push origin "$TAG"
 
-          # Keep package.json on main in step with what shipped. The [skip ci]
-          # marker stops this push from starting another release.
-          git push origin HEAD:main
+      # The push above used the checkout's GITHUB_TOKEN, and GitHub does not
+      # start a workflow run for events that token raises — so this push cannot
+      # re-enter the release. That property is what keeps the loop closed. Do not
+      # replace it with a skip marker in the commit message: GitHub honours those
+      # anywhere in a message, so any commit that merely mentioned one would
+      # silently suppress the release.
+      - name: Keep the version on main
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          git push origin HEAD:main || \
+            echo "::warning::published, but package.json on main still shows the old version"
 
       - name: Create full changelog
         env:
