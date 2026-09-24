@@ -1,130 +1,162 @@
 # dsh-claude-subscription
 
-A DeepSeek Harness (DSH) bundle that runs the built-in Anthropic provider on a
-**Claude Code subscription** (Pro / Max / Team) instead of a separately billed
-API key.
+[中文](README.zh.md)
 
-DSH normally expects `ANTHROPIC_API_KEY` to hold a pay-as-you-go key. This bundle
-takes the OAuth credential the `claude` CLI already stored — on macOS, the
-keychain item `Claude Code-credentials` — and publishes its access token into the
-credentials seam under `ANTHROPIC_API_KEY`. pi-ai recognises the `sk-ant-oat`
-prefix, so requests then go out the same way the CLI sends them (Bearer auth, the
-`claude-cli` user agent, the Claude Code identity system prompt), which is what a
-subscription requires.
+Run **Claude models inside DeepSeek Harness on your Claude Code subscription** —
+no separate Anthropic API key, no per-token billing.
 
-Nothing is hardcoded: no token is copied into a config file, and no secret is
-written to disk by this bundle.
+You sign in to the `claude` CLI once. This bundle picks that credential up and
+hands it to the harness's built-in Anthropic provider, so DSH and the CLI draw on
+the same subscription.
 
-## What it does per pass
+## What you get
 
-On startup, and then every `checkIntervalMs`, the plugin:
+- **Claude models in DSH** — Opus, Sonnet, Haiku, whichever your plan covers.
+- **No API key to buy or paste.** If `claude` works on this machine, DSH works.
+- **Stays signed in.** The token is renewed automatically, in the background.
+- **One credential, not two.** Renewal is written back, so the CLI keeps working
+  and you never sign in twice.
+- **Nothing else disturbed.** Your other providers, your default model, and your
+  model list are all left alone.
+- **Works in any profile.**
 
-1. Reads the `claude` CLI credential (keychain, or `<configDir>/.credentials.json`).
-2. Publishes the token it already holds, so the route works immediately.
-3. If the token is inside `refreshMarginMs` of expiry, renews it against
-   `https://platform.claude.com/v1/oauth/token`.
-4. Writes a rotation back to the CLI credential when `writeBack` is enabled,
-   after a re-read that drops the rotation if the CLI logged in concurrently —
-   a lost rotation would otherwise desynchronise the two clients.
-5. Declares the provider route, merging only that one route so every other
-   configured provider survives.
+## Requirements
 
-Step 2 runs before step 3 deliberately. Renewal needs the network, and a pass
-that refused to publish until it succeeded would leave the route unusable
-whenever the token endpoint was slow or unreachable.
+- **macOS.** The credential is read from the login keychain.
+- **A Claude Code subscription** (Pro / Max / Team), signed in at least once.
+- DSH installed, and the `claude` CLI on your `PATH`.
 
 ## Install
+
+```sh
+dsh plugin --profile web add github:dshapp/dsh-claude-subscription
+```
+
+Or from a local checkout:
 
 ```sh
 dsh plugin --profile web add /path/to/dsh-claude-subscription
 ```
 
-`dsh plugin` is a pnpm forwarder and does not boot the profile, so restart the
-harness afterwards (for the web profile, restart `dsh web`).
+Then **restart the harness** — `dsh plugin` installs but does not boot the
+profile, so a running `dsh web` will not have loaded it yet.
+
+## Sign in once
+
+If you have never used the CLI on this machine:
+
+```sh
+claude
+```
+
+Complete the browser sign-in. The plugin has nothing else to configure — on the
+next harness start it finds the credential and the Anthropic route becomes
+usable.
+
+## Pick your model
+
+The `anthropic` route serves every Claude model in the built-in catalog, so for
+most people there is nothing to do: open the **Models** page and choose one.
+
+To use a model the catalog does not know about — a newer release, say — declare
+it in the profile's `cordis.patch.yml`:
+
+```yaml
+- id: llm-pi-ai
+  config:
+    providers:
+      anthropic:
+        models:
+          - id: claude-opus-5-5
+            input:
+              - text
+              - image
+```
+
+> **Careful:** declaring `models` **replaces the whole catalog** for that route,
+> it does not extend it. Listing one model means that route serves *only* that
+> one. To keep the catalog models around, list them all, or leave the field out
+> entirely and pick from the catalog instead.
+
+This bundle never writes `models` itself, so whatever you declare here survives.
 
 ## Configuration
 
-Every field is volatile and editable from the settings page.
+Every field is editable from the settings page and takes effect on the next
+check — no restart.
 
 | Field | Default | Meaning |
 | --- | --- | --- |
-| `provider` | `anthropic` | Route key provisioned in `llm-pi-ai`. |
-| `displayName` | `Claude (subscription)` | Label shown for that route. |
-| `apiKeyRef` | `ANTHROPIC_API_KEY` | Credential reference the route resolves. |
-| `manageProvider` | `true` | Declare the route at all. |
-| `refreshMarginMs` | `300000` | How long before expiry to renew. |
-| `checkIntervalMs` | `300000` | Interval between passes. |
-| `writeBack` | `true` | Write a rotation back to the CLI credential. |
-| `keychainService` | *(derived)* | Explicit keychain service to read. |
+| `provider` | `anthropic` | Route key this bundle provisions. |
+| `displayName` | `Claude (subscription)` | Label for that route. |
+| `apiKeyRef` | `ANTHROPIC_API_KEY` | Credential name the route resolves. |
+| `manageProvider` | `true` | Whether to declare the route at all. |
+| `refreshMarginMs` | `300000` | Renew this long before the token expires. |
+| `checkIntervalMs` | `300000` | How often to re-read the credential. |
+| `writeBack` | `true` | Write renewals back to the `claude` CLI credential. |
+| `keychainService` | *(derived)* | Explicit keychain item to read. |
 | `keychainAccount` | `$USER` | Keychain account to read. |
 | `credentialsFile` | *(derived)* | Read a JSON credential file instead. |
-| `backupDir` | `$DSH_HOME/claude-subscription` | Where pre-rotation copies go. |
+| `backupDir` | `$DSH_HOME/claude-subscription` | Where pre-renewal copies go. |
 
-### `models` is never written
+## Everyday behaviour
 
-The plugin sets only `apiKeyEnv` and `displayName` on its route. It does not
-touch `models`, so a route that lists models keeps that exact list and a route it
-creates leaves the field absent, letting the installed pi-ai catalog serve it.
+- The route is usable a moment after the harness starts.
+- The token renews itself roughly every 8 hours; the plugin checks every 5
+  minutes and only acts when renewal is actually due.
+- Left the harness off for a long stretch? The next start renews the token, so
+  there is nothing to do on your side.
+- Ran `claude` and signed in as someone else? The next check picks up the new
+  credential.
 
-That restraint is deliberate: the catalog and a subscription do not always
-agree. This account offers `claude-opus-5-5`, which the catalog does not list, so
-"follow the catalog" would silently delete an operator's chosen model id.
+## Troubleshooting
 
-## Requirements
+| Symptom | Cause and fix |
+| --- | --- |
+| `no Claude Code credential …` in the log, Anthropic route errors | Not signed in on this machine. Run `claude` and complete the sign-in. |
+| The route is missing from the Models page | The harness has not loaded the bundle since install. Restart it. |
+| `401` / "OAuth access token has been revoked" | The stored token went stale. Run `claude` to sign in again; the next check republishes it. |
+| `429 rate_limit_error` | Your plan's rate limit, not a bug. Wait, or use a smaller model. |
+| Only one Claude model is selectable | That route declares a `models` list, which replaces the catalog. See [Pick your model](#pick-your-model). |
+| The `claude` CLI stopped working after DSH used it | Both share one credential. Sign in with `claude` again — DSH will follow. |
 
-- macOS (keychain reads shell out to `/usr/bin/security`); a Linux/Windows port
-  would read `~/.claude/.credentials.json` instead.
-- A signed-in `claude` CLI. If the credential is missing the plugin logs a
-  warning and leaves the route unauthenticated rather than failing the harness.
-
-## Refresh tokens are single-use
-
-Anthropic rotates the refresh token on every renewal, so **exactly one client may
-spend a given refresh token**. This is why the plugin owns the renewal and writes
-the result back: letting pi-ai refresh into DSH's own store would leave the CLI
-holding a dead token.
-
-The same fact makes tests dangerous. `test/credential.test.mjs` rewrites both
-secret fields to synthetic values before writing anything, and refuses to run its
-plugin pass unless the scratch keychain item — not the operator's live
-credential — is what actually resolved.
-
-## Verification
+## Uninstall
 
 ```sh
+dsh plugin --profile web remove dsh-claude-subscription
+```
+
+Restart afterwards. Your `claude` CLI credential is untouched — remove it with
+`claude logout` if you want it gone too.
+
+## Notes
+
+- **Not affiliated with Anthropic.** This is an interoperability plugin. It
+  reuses a credential you already have; it does not grant access to anything.
+- **Your subscription, your terms.** Sharing a subscription credential with
+  another client is your call, and may not match Anthropic's terms of service.
+  Use it for your own machine the way you would use the CLI.
+- **One credential, two clients.** DSH and `claude` share a single signed-in
+  session, so a sign-out on either side affects both.
+
+## Development
+
+```sh
+pnpm install
 node test/credential.test.mjs
 ```
 
-The suite reads the real credential but only ever writes to a throwaway keychain
-item (`dsh-claude-subscription-scratch`), which it deletes afterwards. Before
-running its plugin pass it rewrites **both** secret fields to synthetic values
-and asserts that the scratch item — not the operator's live credential — is what
-actually resolved, because `readClaudeCredential` walks a fallback chain and a
-missing scratch item would otherwise silently resolve the real one. It exits
-without writing anything when there is no credential to describe.
+The suite needs a live `claude` credential to describe. It only ever writes to a
+throwaway keychain item, which it deletes afterwards, and it refuses to run when
+that item is not what resolved.
 
-It covers service-name derivation, read/write/backup round trips, refresh maths,
-refusal handling, route merging that preserves sibling providers, conflict retry,
-and the publish-before-renew ordering.
-
-### The live renewal test is opt-in
+A separate opt-in check exercises the live renewal path. It spends a real
+single-use refresh token, so it never runs by default:
 
 ```sh
 CLAUDE_LIVE_REFRESH_TEST=1 node test/refresh.live.mjs
 ```
 
-This is the only code that spends a real, single-use refresh token, so it is not
-part of the default run and will not start without that variable. It persists the
-rotation **before** verifying anything else: Anthropic invalidates the old
-refresh token as it mints the new one, so a rotated-but-unwritten token is a
-destroyed credential. If persistence itself fails it says so loudly instead of
-pretending a restore is possible.
+## License
 
-### A note on the risk this code carries
-
-Anthropic rotates refresh tokens on every renewal, which makes a careless pass
-genuinely destructive: spend the token, fail to store the replacement, and the
-`claude` CLI is signed out. That is a real failure mode, not a theoretical one —
-it happened while this bundle was being built, to its own author's credential.
-Both test files and the plugin's write-back ordering exist in the shape they do
-because of it.
+[MIT](LICENSE)
