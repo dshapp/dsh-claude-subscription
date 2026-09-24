@@ -29,12 +29,6 @@ Anthropic 提供商，于是 DSH 和 CLI 共用同一份订阅。
 dsh plugin --profile web add github:dshapp/dsh-claude-subscription
 ```
 
-或者从本地目录安装：
-
-```sh
-dsh plugin --profile web add /path/to/dsh-claude-subscription
-```
-
 然后**重启 harness** —— `dsh plugin` 只负责安装、不启动 profile，所以正在运行的
 `dsh web` 还没加载它。
 
@@ -104,14 +98,6 @@ bundle 直接写死，而不是暴露出「唯一正确取值就是默认值」�
 | 只能选到一个 Claude 模型 | 该路由声明了 `models` 列表，它会替换 catalog。见[选模型](#选模型)。 |
 | DSH 用过之后 `claude` CLI 不能用了 | 两者共用一份凭证。用 `claude` 重新登录，DSH 会跟上。 |
 
-## 卸载
-
-```sh
-dsh plugin --profile web remove dsh-claude-subscription
-```
-
-之后重启。你的 `claude` CLI 凭证不受影响 —— 想一并清除就用 `claude logout`。
-
 ## 说明
 
 - **与 Anthropic 无关联。** 这是一个互操作性插件。它复用你已有的凭证，本身不授予
@@ -120,23 +106,6 @@ dsh plugin --profile web remove dsh-claude-subscription
   Anthropic 的服务条款。请按"在自己机器上使用 CLI"的方式来使用它。
 - **一份凭证，两个客户端。** DSH 和 `claude` 共用同一个登录会话，任何一边登出都会
   影响另一边。
-
-## 开发
-
-```sh
-pnpm install
-node test/credential.test.mjs
-```
-
-该测试需要一份有效的 `claude` 凭证才能描述；它只会写入一个临时钥匙串条目并在结束后
-删除，且当解析到的不是该条目时会拒绝运行。
-
-另有一个需要显式开启的实测，用来验证真实续期链路。它会消耗一次真实的一次性
-refresh token，因此默认永不运行：
-
-```sh
-CLAUDE_LIVE_REFRESH_TEST=1 node test/refresh.live.mjs
-```
 
 ## 许可证
 

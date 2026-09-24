@@ -32,12 +32,6 @@ the same subscription.
 dsh plugin --profile web add github:dshapp/dsh-claude-subscription
 ```
 
-Or from a local checkout:
-
-```sh
-dsh plugin --profile web add /path/to/dsh-claude-subscription
-```
-
 Then **restart the harness** — `dsh plugin` installs but does not boot the
 profile, so a running `dsh web` will not have loaded it yet.
 
@@ -114,15 +108,6 @@ To change any of it, edit `lib/index.js` — the constants sit at the top.
 | Only one Claude model is selectable | That route declares a `models` list, which replaces the catalog. See [Pick your model](#pick-your-model). |
 | The `claude` CLI stopped working after DSH used it | Both share one credential. Sign in with `claude` again — DSH will follow. |
 
-## Uninstall
-
-```sh
-dsh plugin --profile web remove dsh-claude-subscription
-```
-
-Restart afterwards. Your `claude` CLI credential is untouched — remove it with
-`claude logout` if you want it gone too.
-
 ## Notes
 
 - **Not affiliated with Anthropic.** This is an interoperability plugin. It
@@ -132,24 +117,6 @@ Restart afterwards. Your `claude` CLI credential is untouched — remove it with
   Use it for your own machine the way you would use the CLI.
 - **One credential, two clients.** DSH and `claude` share a single signed-in
   session, so a sign-out on either side affects both.
-
-## Development
-
-```sh
-pnpm install
-node test/credential.test.mjs
-```
-
-The suite needs a live `claude` credential to describe. It only ever writes to a
-throwaway keychain item, which it deletes afterwards, and it refuses to run when
-that item is not what resolved.
-
-A separate opt-in check exercises the live renewal path. It spends a real
-single-use refresh token, so it never runs by default:
-
-```sh
-CLAUDE_LIVE_REFRESH_TEST=1 node test/refresh.live.mjs
-```
 
 ## License
 
