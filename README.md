@@ -82,22 +82,16 @@ This bundle never writes `models` itself, so whatever you declare here survives.
 
 ## Configuration
 
-Every field is editable from the settings page and takes effect on the next
-check — no restart.
+**There is none.** A subscription credential has one sensible location, one
+reference, and one renewal schedule, so the bundle hardcodes them instead of
+offering knobs whose only correct setting is the default:
 
-| Field | Default | Meaning |
-| --- | --- | --- |
-| `provider` | `anthropic` | Route key this bundle provisions. |
-| `displayName` | `Claude (subscription)` | Label for that route. |
-| `apiKeyRef` | `ANTHROPIC_API_KEY` | Credential name the route resolves. |
-| `manageProvider` | `true` | Whether to declare the route at all. |
-| `refreshMarginMs` | `300000` | Renew this long before the token expires. |
-| `checkIntervalMs` | `300000` | How often to re-read the credential. |
-| `writeBack` | `true` | Write renewals back to the `claude` CLI credential. |
-| `keychainService` | *(derived)* | Explicit keychain item to read. |
-| `keychainAccount` | `$USER` | Keychain account to read. |
-| `credentialsFile` | *(derived)* | Read a JSON credential file instead. |
-| `backupDir` | `$DSH_HOME/claude-subscription` | Where pre-renewal copies go. |
+- route `anthropic`, shown as **anthropic**, resolving `ANTHROPIC_API_KEY`
+- the credential is found automatically, and renewals are written back
+- the token is renewed shortly before it expires, and re-checked every 5 minutes
+- pre-renewal copies go to `$DSH_HOME/claude-subscription`
+
+To change any of it, edit `lib/index.js` — the constants sit at the top.
 
 ## Everyday behaviour
 

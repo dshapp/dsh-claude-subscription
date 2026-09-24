@@ -76,21 +76,15 @@ Anthropic 路由随即可用。
 
 ## 配置项
 
-每一项都能在设置页面修改，下一次检查即生效，无需重启。
+**没有配置项。** 订阅凭证只有一种合理的存放位置、一个引用名、一套续期节奏，所以本
+bundle 直接写死，而不是暴露出「唯一正确取值就是默认值」的旋钮：
 
-| 字段 | 默认值 | 含义 |
-| --- | --- | --- |
-| `provider` | `anthropic` | 本 bundle 提供的路由名。 |
-| `displayName` | `Claude (subscription)` | 该路由显示的名称。 |
-| `apiKeyRef` | `ANTHROPIC_API_KEY` | 路由解析的凭证名。 |
-| `manageProvider` | `true` | 是否声明该路由。 |
-| `refreshMarginMs` | `300000` | 到期前多久开始续期。 |
-| `checkIntervalMs` | `300000` | 多久重新读取一次凭证。 |
-| `writeBack` | `true` | 是否把续期写回 `claude` CLI 凭证。 |
-| `keychainService` | *(自动推导)* | 指定要读取的钥匙串条目。 |
-| `keychainAccount` | `$USER` | 要读取的钥匙串账户。 |
-| `credentialsFile` | *(自动推导)* | 改为读取 JSON 凭证文件。 |
-| `backupDir` | `$DSH_HOME/claude-subscription` | 续期前备份的存放目录。 |
+- 路由 `anthropic`，显示为 **anthropic**，解析 `ANTHROPIC_API_KEY`
+- 凭证自动定位，续期自动写回
+- 到期前自动续期，每 5 分钟重新检查一次
+- 续期前的备份放在 `$DSH_HOME/claude-subscription`
+
+想改任何一项，直接改 `lib/index.js` —— 常量都在文件顶部。
 
 ## 日常表现
 

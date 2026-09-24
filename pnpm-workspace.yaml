@@ -1,4 +1,9 @@
-# Harness packages peer-depend on cordis ranges that are not published here, and
-# this bundle imports no harness package at runtime, so peers are not chased.
+# This bundle has no runtime dependencies, so an install resolves nothing from a
+# registry and the mirror configured for the harness profile never matters. The
+# switch below is still required: `@deepseek-ai/dsh` is an optional peer, and
+# with pnpm's default `autoInstallPeers` the peer's own tree gets resolved —
+# which does reach the registry, and fails against that mirror.
+packages:
+  - .
 autoInstallPeers: false
 strictPeerDependencies: false

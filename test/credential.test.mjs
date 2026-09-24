@@ -19,7 +19,7 @@ import {
 	withOAuthFields,
 	writeClaudeCredential
 } from '../lib/claude-code.js';
-import { ensureProvider, snapshot, syncCredential } from '../lib/index.js';
+import { ensureProvider, resolveOptions, syncCredential } from '../lib/index.js';
 
 const run = promisify(execFile);
 const SCRATCH = 'dsh-claude-subscription-scratch';
@@ -114,10 +114,11 @@ const stub = {
 	effect() {},
 	inject() {}
 };
-const config = (await import('../lib/index.js')).Config;
-const validated = config({ keychainService: SCRATCH, keychainAccount: 'user', checkIntervalMs: 60_000 });
-const options = snapshot(stub, validated);
-check('snapshot reads live config', options.provider === 'anthropic' && options.apiKeyRef === 'ANTHROPIC_API_KEY' && options.keychainService === SCRATCH, JSON.stringify({ provider: options.provider, ref: options.apiKeyRef, manageProvider: options.manageProvider }));
+// The bundle ships no configuration, so the fixed options are taken as-is and
+// only the credential location is redirected at the scratch item. That redirect
+// is what keeps this suite off the operator's live credential.
+const options = { ...resolveOptions(), keychainService: SCRATCH, keychainAccount: 'user' };
+check('resolveOptions fixes the route and reference', options.provider === 'anthropic' && options.apiKeyRef === 'ANTHROPIC_API_KEY' && options.displayName === 'anthropic', JSON.stringify({ provider: options.provider, ref: options.apiKeyRef, displayName: options.displayName }));
 
 const waited = await ensureProvider(stub, options);
 check('ensureProvider without a settings entry warns and declines', waited === false && logs.some(([, m]) => m.includes('no "llm-pi-ai" settings entry')));
