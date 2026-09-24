@@ -1,0 +1,168 @@
+name: Release
+
+# Publish to npm on every push to main, using npm trusted publishing: the job
+# exchanges a GitHub OIDC token for a short-lived npm credential, so no
+# long-lived npm token is stored on the repository. `id-token: write` is what
+# permits that exchange and `--provenance` is what records it.
+on:
+  push:
+    branches:
+      - main
+  workflow_dispatch:
+
+concurrency:
+  group: release-main
+  cancel-in-progress: false
+
+permissions:
+  contents: write
+  id-token: write
+
+jobs:
+  release:
+    name: Publish to npm
+    runs-on: ubuntu-latest
+    # Must match the environment named in the package's trusted publisher.
+    environment: npm
+    # A version-bump commit is pushed back below, and re-running the release on
+    # it would try to publish a version that already exists.
+    if: github.event_name == 'workflow_dispatch' || !contains(github.event.head_commit.message, '[skip ci]')
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Setup pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+          run_install: false
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+
+      # Trusted publishing needs an npm that speaks OIDC.
+      - name: Use OIDC-capable npm
+        run: npm install --global npm@latest
+
+      - name: Install dependencies
+        run: pnpm install --frozen-lockfile --ignore-scripts
+
+      # Resolve the version, then publish it. Ordering matters: the check below
+      # only means something against the registry state at publish time, so the
+      # decision and the publish happen in one job rather than being split.
+      - name: Resolve release version
+        id: resolve
+        shell: bash
+        run: |
+          set -euo pipefail
+          PACKAGE_NAME="$(node -p "require('./package.json').name")"
+          LOCAL_VERSION="$(node -p "require('./package.json').version")"
+          PUBLISHED_VERSION="$(npm view "$PACKAGE_NAME" version 2>/dev/null || true)"
+
+          # Publish package.json's version if npm has never seen it. Otherwise
+          # bump to the next patch above the latest of (local, published) — a
+          # version-bump commit may not have landed, so package.json can lag
+          # behind what npm already shipped.
+          if [[ -z "$PUBLISHED_VERSION" ]]; then
+            VERSION="$LOCAL_VERSION"
+          elif npm view "$PACKAGE_NAME@$LOCAL_VERSION" version >/dev/null 2>&1; then
+            HIGHEST="$(printf "%s\n%s\n" "$LOCAL_VERSION" "$PUBLISHED_VERSION" | sort -V | tail -1)"
+            VERSION="$(node -e "const s='$HIGHEST'.split('.');process.stdout.write(s[0]+'.'+s[1]+'.'+(Number(s[2])+1))")"
+          else
+            VERSION="$LOCAL_VERSION"
+          fi
+
+          if npm view "$PACKAGE_NAME@$VERSION" version >/dev/null 2>&1; then
+            echo "Refusing to overwrite existing $PACKAGE_NAME@$VERSION" >&2
+            exit 1
+          fi
+
+          echo "package=$PACKAGE_NAME" >> "$GITHUB_OUTPUT"
+          echo "version=$VERSION" >> "$GITHUB_OUTPUT"
+          echo "tag=v$VERSION" >> "$GITHUB_OUTPUT"
+
+      - name: Validate package
+        run: |
+          node --check lib/index.js
+          node --check lib/claude-code.js
+          # Credential-free, so it is safe and meaningful on CI. The other suite
+          # in test/ needs a live Claude Code credential and edits the keychain,
+          # so it is deliberately not run here.
+          node test/plugin.test.mjs
+          npm pack --dry-run --ignore-scripts
+
+      - name: Apply the resolved version
+        shell: bash
+        env:
+          VERSION: ${{ steps.resolve.outputs.version }}
+        run: |
+          set -euo pipefail
+          if [[ "$(node -p "require('./package.json').version")" != "$VERSION" ]]; then
+            npm version "$VERSION" --no-git-tag-version --ignore-scripts
+          fi
+
+      - name: Publish to npm
+        run: npm publish --access public --provenance
+
+      - name: Create release tag
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add package.json
+          if ! git diff --cached --quiet; then
+            git commit -m "chore(release): $TAG [skip ci]"
+          fi
+          git tag -a "$TAG" -m "$TAG"
+          git push origin "$TAG"
+
+          # Keep package.json on main in step with what shipped. The [skip ci]
+          # marker stops this push from starting another release.
+          git push origin HEAD:main
+
+      - name: Create full changelog
+        env:
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          set -euo pipefail
+          PREVIOUS_TAG="$(git describe --tags --abbrev=0 "$TAG^" 2>/dev/null || true)"
+          {
+            echo "## Changelog"
+            echo
+            if [[ -n "$PREVIOUS_TAG" ]]; then
+              git log "$PREVIOUS_TAG..$TAG" --no-merges \
+                --pretty=format:'- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))'
+              echo
+              echo
+              echo "**Full comparison**: https://github.com/${{ github.repository }}/compare/$PREVIOUS_TAG...$TAG"
+            else
+              git log "$TAG" --no-merges --reverse \
+                --pretty=format:'- %s ([%h](https://github.com/${{ github.repository }}/commit/%H))'
+              echo
+            fi
+          } > release-notes.md
+
+      - name: Create GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: gh release create "$TAG" --verify-tag --title "$TAG" --notes-file release-notes.md
+
+      - name: Write summary
+        env:
+          PACKAGE_NAME: ${{ steps.resolve.outputs.package }}
+          VERSION: ${{ steps.resolve.outputs.version }}
+          TAG: ${{ steps.resolve.outputs.tag }}
+        run: |
+          echo "### Release $TAG" >> "$GITHUB_STEP_SUMMARY"
+          echo "- npm: https://www.npmjs.com/package/$PACKAGE_NAME/v/$VERSION" >> "$GITHUB_STEP_SUMMARY"
+          echo "- GitHub: https://github.com/${{ github.repository }}/releases/tag/$TAG" >> "$GITHUB_STEP_SUMMARY"

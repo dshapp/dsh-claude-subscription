@@ -9,4 +9,4 @@
 # through the settings seam (`ensureProvider`), which merges.
 - insert:
     - id: claude-subscription
-      name: 'dsh-claude-subscription'
+      name: '@dshapp/dsh-claude-subscription'

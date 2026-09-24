@@ -29,7 +29,7 @@ the same subscription.
 ## Install
 
 ```sh
-dsh plugin --profile web add github:dshapp/dsh-claude-subscription
+dsh plugin --profile web add @dshapp/dsh-claude-subscription
 ```
 
 Then **restart the harness** — `dsh plugin` installs but does not boot the

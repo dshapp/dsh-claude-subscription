@@ -26,7 +26,7 @@ Anthropic 提供商，于是 DSH 和 CLI 共用同一份订阅。
 ## 安装
 
 ```sh
-dsh plugin --profile web add github:dshapp/dsh-claude-subscription
+dsh plugin --profile web add @dshapp/dsh-claude-subscription
 ```
 
 然后**重启 harness** —— `dsh plugin` 只负责安装、不启动 profile，所以正在运行的
