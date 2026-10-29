@@ -5,10 +5,11 @@
  * macOS keychain, so it cannot gate a release. This file covers the pure
  * decisions that a release could plausibly break — service derivation, expiry
  * maths, document round-tripping, route merging, publish-before-renew
- * ordering — against stubs only. It touches no keychain and no network.
+ * ordering, and the `AUTH` recovery decision — against stubs only. It touches
+ * no keychain and no network.
  */
 import { credentialsFileFor, expandHome, keychainServiceFor, needsRefresh, readOAuthFields, withOAuthFields } from '../lib/claude-code.js';
-import { ensureProvider, mask, resolveOptions, syncCredential } from '../lib/index.js';
+import { ensureProvider, mask, recoverAuthFailure, resolveOptions, syncCredential } from '../lib/index.js';
 
 const results = [];
 const check = (label, ok, detail = '') => {
@@ -153,6 +154,91 @@ const forbiddenRenew = async () => { throw new Error('the token endpoint must no
 	const expired = credentialOf({ accessToken: SYNTHETIC_ACCESS, refreshToken: SYNTHETIC_REFRESH, expiresAt: Date.now() - 1 });
 	const outcome = await syncCredential(ctx, options, { lastAttempt: 0 }, { read: async () => expired, renew: forbiddenRenew });
 	check('syncCredential publishes before renewing an expired token', refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS, `${outcome}, store=${refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS ? 'published' : 'empty'}`);
+}
+
+// --- AUTH recovery ----------------------------------------------------------
+{
+	// Another Claude client rotated the shared login: the held token is revoked,
+	// so the store must be corrected and the step retried once.
+	const { ctx, refs, logs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', 'sk-ant-oat01-revoked']]) });
+	const state = { lastAttempt: 0 };
+	let delegated = 0;
+	const decision = await recoverAuthFailure(
+		ctx,
+		state,
+		{ turn: 1, step: 2, failure: { code: 'AUTH', message: '401 OAuth access token has been revoked' } },
+		async () => { delegated += 1; return undefined; },
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+	);
+	check(
+		'an AUTH failure republishes a rotated credential and retries the step',
+		decision?.kind === 'retry' && refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS && delegated === 0,
+		JSON.stringify(decision)
+	);
+	check('the recovery names no token in its log', logs.some(([, m]) => m.includes('retrying the step')) && logs.every(([, m]) => !m.includes(SYNTHETIC_ACCESS)));
+	let rescanned = 0;
+	const again = await recoverAuthFailure(
+		ctx,
+		state,
+		{ turn: 1, step: 2, failure: { code: 'AUTH', message: '401 OAuth access token has been revoked' } },
+		async () => { delegated += 1; return undefined; },
+		async () => { rescanned += 1; return 'published'; }
+	);
+	check('a step gets one AUTH recovery only', again === undefined && delegated === 1 && rescanned === 0, `delegated=${delegated} rescanned=${rescanned}`);
+}
+{
+	// The store already holds the credential's current token, so the rejection is
+	// real: resending it would fail again and the turn must end instead.
+	const { ctx } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', SYNTHETIC_ACCESS]]) });
+	let delegated = 0;
+	const state = { lastAttempt: 0 };
+	const decision = await recoverAuthFailure(
+		ctx,
+		state,
+		{ turn: 2, step: 1, failure: { code: 'AUTH', message: '401' } },
+		async () => { delegated += 1; return undefined; },
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+	);
+	check('an AUTH failure with an unchanged credential delegates', decision === undefined && delegated === 1, String(decision));
+}
+{
+	const { ctx } = stubContext();
+	let delegated = 0;
+	let rescanned = 0;
+	const decision = await recoverAuthFailure(
+		ctx,
+		{ lastAttempt: 0 },
+		{ turn: 1, step: 1, failure: { code: 'RATE_LIMIT', message: '429' } },
+		async () => { delegated += 1; return undefined; },
+		async () => { rescanned += 1; return 'published'; }
+	);
+	check('a non-AUTH failure never rescans the credential', decision === undefined && delegated === 1 && rescanned === 0);
+}
+{
+	// An exhausted step must not consume the next step's recovery.
+	const { ctx, refs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', 'stale']]) });
+	const state = { lastAttempt: 0, authStep: '1:2', authAttempts: 1 };
+	const decision = await recoverAuthFailure(
+		ctx,
+		state,
+		{ turn: 1, step: 3, failure: { code: 'AUTH', message: '401' } },
+		async () => undefined,
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+	);
+	check('a new step resets the AUTH recovery budget', decision?.kind === 'retry' && state.authAttempts === 1 && refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS);
+}
+// --- forced passes ----------------------------------------------------------
+{
+	// The interval pass is throttled after a renewal attempt; a recovery pass is
+	// not, because the credential may have changed since that attempt.
+	const nearlyExpired = credentialOf({ accessToken: SYNTHETIC_ACCESS, refreshToken: SYNTHETIC_REFRESH, expiresAt: Date.now() + 60_000 });
+	const { ctx, logs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', SYNTHETIC_ACCESS]]) });
+	const state = { lastAttempt: Date.now() };
+	const renewAttempts = () => logs.filter(([, m]) => m.includes('renewing the subscription token failed')).length;
+	const throttled = await syncCredential(ctx, options, state, { read: async () => nearlyExpired, renew: forbiddenRenew });
+	const afterThrottle = renewAttempts();
+	const forced = await syncCredential(ctx, options, state, { read: async () => nearlyExpired, renew: forbiddenRenew }, { force: true });
+	check('a forced pass renews despite the throttle', throttled === 'unchanged' && afterThrottle === 0 && forced === 'unchanged' && renewAttempts() === 1, `throttled=${afterThrottle} forced=${renewAttempts()}`);
 }
 
 const failed = results.filter((r) => !r.ok);

@@ -83,6 +83,7 @@ offering knobs whose only correct setting is the default:
 - route `anthropic`, shown as **anthropic**, resolving `ANTHROPIC_API_KEY`
 - the credential is found automatically, and renewals are written back
 - the token is renewed shortly before it expires, and re-checked every 5 minutes
+- an `AUTH` rejection re-reads the credential out of band and retries the step once
 - pre-renewal copies go to `$DSH_HOME/claude-subscription`
 
 To change any of it, edit `lib/index.js` — the constants sit at the top.
@@ -96,6 +97,9 @@ To change any of it, edit `lib/index.js` — the constants sit at the top.
   there is nothing to do on your side.
 - Ran `claude` and signed in as someone else? The next check picks up the new
   credential.
+- Another Claude client refreshed the shared login, revoking the token this
+  harness held? The rejected request re-reads the credential and retries the
+  step once, so the turn continues instead of failing.
 
 ## Troubleshooting
 
@@ -103,7 +107,7 @@ To change any of it, edit `lib/index.js` — the constants sit at the top.
 | --- | --- |
 | `no Claude Code credential …` in the log, Anthropic route errors | Not signed in on this machine. Run `claude` and complete the sign-in. |
 | The route is missing from the Models page | The harness has not loaded the bundle since install. Restart it. |
-| `401` / "OAuth access token has been revoked" | The stored token went stale. Run `claude` to sign in again; the next check republishes it. |
+| `401` / "OAuth access token has been revoked" | The token went stale because another Claude client refreshed the shared login. The plugin re-reads the credential and retries the step once automatically. If it keeps failing, the login itself is gone — run `claude` to sign in again. |
 | `429 rate_limit_error` | Your plan's rate limit, not a bug. Wait, or use a smaller model. |
 | Only one Claude model is selectable | That route declares a `models` list, which replaces the catalog. See [Pick your model](#pick-your-model). |
 | The `claude` CLI stopped working after DSH used it | Both share one credential. Sign in with `claude` again — DSH will follow. |

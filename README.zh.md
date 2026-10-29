@@ -76,6 +76,7 @@ bundle 直接写死，而不是暴露出「唯一正确取值就是默认值」�
 - 路由 `anthropic`，显示为 **anthropic**，解析 `ANTHROPIC_API_KEY`
 - 凭证自动定位，续期自动写回
 - 到期前自动续期，每 5 分钟重新检查一次
+- 请求被 `AUTH` 拒绝时立即重读凭证，并重试该步骤一次
 - 续期前的备份放在 `$DSH_HOME/claude-subscription`
 
 想改任何一项，直接改 `lib/index.js` —— 常量都在文件顶部。
@@ -86,6 +87,8 @@ bundle 直接写死，而不是暴露出「唯一正确取值就是默认值」�
 - token 大约每 8 小时自动续期一次；插件每 5 分钟检查一次，只在确实需要时才动作。
 - 长时间没开 harness？下次启动会自动续期，你不需要做什么。
 - 用 `claude` 登录成了别的账号？下一次检查会采用新凭证。
+- 别的 Claude 客户端刷新了共享登录、把本 harness 手里的 token 吊销了？被拒的那次请求
+  会重新读取凭证并重试该步骤一次，这一轮不会失败。
 
 ## 常见问题
 
@@ -93,7 +96,7 @@ bundle 直接写死，而不是暴露出「唯一正确取值就是默认值」�
 | --- | --- |
 | 日志出现 `no Claude Code credential …`，Anthropic 路由报错 | 这台机器还没登录。运行 `claude` 完成登录。 |
 | Models 页面里找不到这条路由 | harness 安装后还没重新加载 bundle。重启它。 |
-| `401` / "OAuth access token has been revoked" | 存储的 token 已失效。运行 `claude` 重新登录，下次检查会重新发布。 |
+| `401` / "OAuth access token has been revoked" | 别的 Claude 客户端刷新了共享登录，token 已失效。插件会自动重读凭证并重试该步骤一次；如果仍然失败，说明登录本身没了，运行 `claude` 重新登录。 |
 | `429 rate_limit_error` | 你套餐的速率限制，不是 bug。等一会儿，或换小一点的模型。 |
 | 只能选到一个 Claude 模型 | 该路由声明了 `models` 列表，它会替换 catalog。见[选模型](#选模型)。 |
 | DSH 用过之后 `claude` CLI 不能用了 | 两者共用一份凭证。用 `claude` 重新登录，DSH 会跟上。 |
