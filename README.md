@@ -82,7 +82,8 @@ offering knobs whose only correct setting is the default:
 
 - route `anthropic`, shown as **anthropic**, resolving `ANTHROPIC_API_KEY`
 - the credential is found automatically, and renewals are written back
-- the token is renewed shortly before it expires, and re-checked every 5 minutes
+- the token is renewed only once it has expired, and re-checked every 5 minutes
+- a credential another client renewed first is adopted, never overwritten
 - an `AUTH` rejection re-reads the credential out of band and retries the step once
 - pre-renewal copies go to `$DSH_HOME/claude-subscription`
 
@@ -93,6 +94,10 @@ To change any of it, edit `lib/index.js` — the constants sit at the top.
 - The route is usable a moment after the harness starts.
 - The token renews itself roughly every 8 hours; the plugin checks every 5
   minutes and only acts when renewal is actually due.
+- Refreshing mints a new access token, which revokes the one every other Claude
+  client on the machine is using. So this harness never renews early: it renews
+  only after the credential has expired, and if the `claude` CLI (or any other
+  client) renewed first, the next check simply adopts what is in the keychain.
 - Left the harness off for a long stretch? The next start renews the token, so
   there is nothing to do on your side.
 - Ran `claude` and signed in as someone else? The next check picks up the new

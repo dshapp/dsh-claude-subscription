@@ -168,7 +168,7 @@ const forbiddenRenew = async () => { throw new Error('the token endpoint must no
 		state,
 		{ turn: 1, step: 2, failure: { code: 'AUTH', message: '401 OAuth access token has been revoked' } },
 		async () => { delegated += 1; return undefined; },
-		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew })
 	);
 	check(
 		'an AUTH failure republishes a rotated credential and retries the step',
@@ -197,7 +197,7 @@ const forbiddenRenew = async () => { throw new Error('the token endpoint must no
 		state,
 		{ turn: 2, step: 1, failure: { code: 'AUTH', message: '401' } },
 		async () => { delegated += 1; return undefined; },
-		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew })
 	);
 	check('an AUTH failure with an unchanged credential delegates', decision === undefined && delegated === 1, String(decision));
 }
@@ -223,22 +223,52 @@ const forbiddenRenew = async () => { throw new Error('the token endpoint must no
 		state,
 		{ turn: 1, step: 3, failure: { code: 'AUTH', message: '401' } },
 		async () => undefined,
-		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew }, { force: true })
+		async () => syncCredential(ctx, options, state, { read: async () => LIVE, renew: forbiddenRenew })
 	);
 	check('a new step resets the AUTH recovery budget', decision?.kind === 'retry' && state.authAttempts === 1 && refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS);
 }
-// --- forced passes ----------------------------------------------------------
+// --- renewal policy ---------------------------------------------------------
 {
-	// The interval pass is throttled after a renewal attempt; a recovery pass is
-	// not, because the credential may have changed since that attempt.
+	// Minting revokes the access token every other Claude client is using, so a
+	// credential that is still valid must never be renewed early.
 	const nearlyExpired = credentialOf({ accessToken: SYNTHETIC_ACCESS, refreshToken: SYNTHETIC_REFRESH, expiresAt: Date.now() + 60_000 });
 	const { ctx, logs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', SYNTHETIC_ACCESS]]) });
-	const state = { lastAttempt: Date.now() };
-	const renewAttempts = () => logs.filter(([, m]) => m.includes('renewing the subscription token failed')).length;
-	const throttled = await syncCredential(ctx, options, state, { read: async () => nearlyExpired, renew: forbiddenRenew });
-	const afterThrottle = renewAttempts();
-	const forced = await syncCredential(ctx, options, state, { read: async () => nearlyExpired, renew: forbiddenRenew }, { force: true });
-	check('a forced pass renews despite the throttle', throttled === 'unchanged' && afterThrottle === 0 && forced === 'unchanged' && renewAttempts() === 1, `throttled=${afterThrottle} forced=${renewAttempts()}`);
+	const outcome = await syncCredential(ctx, options, {}, { read: async () => nearlyExpired, renew: forbiddenRenew });
+	check(
+		'a still-valid credential is never renewed early',
+		outcome === 'unchanged' && !logs.some(([, m]) => m.includes('renewing the subscription token failed')),
+		outcome
+	);
+}
+{
+	// Nothing else refreshed and the credential is dead: only then does this pass
+	// mint, because every client is cut off anyway.
+	const expired = credentialOf({ accessToken: SYNTHETIC_ACCESS, refreshToken: SYNTHETIC_REFRESH, expiresAt: Date.now() - 1 });
+	const { ctx, logs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', SYNTHETIC_ACCESS]]) });
+	const outcome = await syncCredential(ctx, options, {}, { read: async () => expired, renew: forbiddenRenew });
+	check(
+		'an expired credential is renewed',
+		outcome === 'unchanged' && logs.some(([, m]) => m.includes('renewing the subscription token failed')),
+		outcome
+	);
+}
+{
+	// Another Claude client got there first: adopt its credential rather than
+	// minting over it, which would revoke the token it just wrote.
+	const expired = credentialOf({ accessToken: 'sk-ant-oat01-expired', refreshToken: SYNTHETIC_REFRESH, expiresAt: Date.now() - 1 });
+	const { ctx, refs, logs } = stubContext({ refs: new Map([['ANTHROPIC_API_KEY', 'sk-ant-oat01-expired']]) });
+	let reads = 0;
+	let minted = 0;
+	const outcome = await syncCredential(ctx, options, {}, {
+		read: async () => (++reads === 1 ? expired : LIVE),
+		renew: async () => { minted += 1; throw new Error('another client already renewed this credential'); },
+	});
+	check(
+		'a credential renewed by another client is adopted instead of minted',
+		outcome === 'published' && minted === 0 && refs.get('ANTHROPIC_API_KEY') === SYNTHETIC_ACCESS,
+		`${outcome}, minted=${minted}`
+	);
+	check('the adoption is logged', logs.some(([, m]) => m.includes('another Claude client renewed the credential first')));
 }
 
 const failed = results.filter((r) => !r.ok);
